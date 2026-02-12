@@ -8,8 +8,11 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <string.h>
+#include <signal.h>
 
 #define LISTEN_BACKLOG 50
+
+int fd, client_fd;
 
 struct LinkedList {
   void *data;
@@ -121,6 +124,59 @@ size_t headers_build(char *buff, struct LinkedList *headers) {
   return len;
 }
 
+void body_build(char *buff, char *body) {
+	size_t len = strlen(buff);
+	size_t i = 0;
+	int cnt = 0;
+	while(cnt < 2 && i < len) {
+		if(buff[i] == 13 && buff[i+1] == 10) {
+			cnt += 1;
+			i += 2;
+		} else {
+			cnt = 0;
+			++i;
+		}
+	}
+	if(body == NULL) {
+		body = malloc(len - i + 1);
+	}
+
+	printf("body: %s\n", buff+i);
+	strcpy(body, buff+i);
+}
+
+int headers_get_content_length(struct LinkedList *list) {
+	while(list != NULL && list->data != NULL) {
+		struct Header header = *(struct Header *) list->data;
+		if(strcasecmp(header.key, "content-length") == 0) {
+			return atoi(header.value);
+		}
+		list = list->next;
+	}
+	return -1;
+}
+
+char *headers_build_str(struct LinkedList *headers) {
+	char *buff = malloc(200);
+	sprintf(buff, "");
+
+	struct Header header;
+	struct LinkedList curr = *headers;
+	while(curr.data != NULL && curr.next != NULL) {
+		header = *(struct Header *) curr.data;
+		char *header_str = malloc(strlen(header.key) + strlen(header.value) + 5);
+		sprintf(header_str, "%s: %s\r\n", header.key, header.value);
+		buff = realloc(buff, strlen(buff) + strlen(header_str));
+		sprintf(buff, "%s%s", buff, header_str);
+		curr = *curr.next;
+	}
+
+	buff = realloc(buff, strlen(buff) + 2);
+	sprintf(buff, "%s\r\n", buff);
+
+	return buff;
+}
+
 void request_build(char *buff, struct Request* req) {
   size_t len = strlen(buff);
   if(req == NULL) {
@@ -128,6 +184,7 @@ void request_build(char *buff, struct Request* req) {
   }
   req->method = malloc(15);
   req->uri = malloc(4096);
+	req->proto = malloc(15);
   int i = 0, idx = 0;
   while(i < len) {
     if(buff[i] == 13 && buff[i+1] == 10) {
@@ -141,6 +198,7 @@ void request_build(char *buff, struct Request* req) {
     ++idx;
   }
 
+	i += 1;
   idx = 0;
   while(i < len) {
     if(buff[i] == 13 && buff[i+1] == 10) {
@@ -149,29 +207,91 @@ void request_build(char *buff, struct Request* req) {
       break;
     }
     if(buff[i] == ' ') break;
-    *(req->uri+idx) = buff[i];
+    req->uri[idx] = buff[i];
     ++i;
     ++idx;
   }
 
   idx = 0;
+	i+=1;
   while(i < len) {
     if(buff[i] == 13 && buff[i+1] == 10) {
       req->proto[idx] = '\0';
       break;
     }
-    if(buff[i] == ' ') break;
     req->proto[idx] = buff[i];
     ++i;
     ++idx;
   }
 
+	
   req->headers = malloc(sizeof(struct Header));
   req->headers_len = headers_build(buff, req->headers);
+	int content_length = headers_get_content_length(req->headers);
+	if(content_length > 0) {
+		req->body = malloc(content_length);
+	} else {
+		req->body = NULL;
+	}
+
+	body_build(buff, req->body);
+}
+
+void disect_request_main(struct Request *request) {
+		printf("%s %s %s\n", request->method, request->uri, request->proto);
+}
+
+void disect_request_headers(struct Request *request) {
+	struct Header header;
+	struct LinkedList curr = *request->headers;
+	for(size_t i = 0; i < request->headers_len; i++) {
+		header = *(struct Header *) curr.data;
+		printf("%s: %s\n", header.key, header.value);
+		curr = *curr.next;
+	}
+}
+
+void disect_request_body(struct Request *request) {
+	printf("%s\n", request->body);
+}
+
+void disect_request(struct Request *request, int fl) {
+		disect_request_main(request);
+		disect_request_headers(request);
+		printf("\n");
+		disect_request_body(request);
+}
+
+void send_request(struct Request *request) {
+	char *buff = malloc(4096 * 2);
+	char *headers_str = headers_build_str(request->headers);
+	printf("%s\n", headers_str);
+	sprintf(buff, "%s %s %s\r\n", request->method, request->uri, request->proto);
+}
+
+void process_request(struct Request *request) {
+	char command[200];
+	printf("Process Request\nChoose:\n(1) -> Disect\n(2) -> Resend\n(3) -> Modify\n> ");
+	scanf("%s", &command);
+	char *token = strtok(command, " ");
+	if(strcmp(token, "disect") == 0) {
+		token = strtok(command, " ");
+		if(token == NULL) 
+			disect_request(request, 0);
+		if(strcmp(token, "main") == 0) 
+			disect_request_main(request);
+		if(strcmp(token, "headers") == 0)
+			disect_request_headers(request);
+		if(strcmp(token, "body") == 0)
+			disect_request_body(request);
+	}
+	if(strcmp(token, "resend") == 0) {
+		send_request(request);
+	}
 }
 
 void serve() {
-  int fd = socket(AF_INET, SOCK_STREAM, 0);
+  fd = socket(AF_INET, SOCK_STREAM, 0);
   struct sockaddr_in addr, caddr;
   addr.sin_family = AF_INET;
   addr.sin_port = htons(3000);
@@ -187,15 +307,15 @@ void serve() {
 
   socklen_t peer_addr_len = sizeof(caddr);
   while(1) {
-    int cfd = accept(fd, (struct sockaddr *)&caddr, &peer_addr_len);
-    if(cfd == -1) {
+    client_fd  = accept(fd, (struct sockaddr *)&caddr, &peer_addr_len);
+    if(client_fd == -1) {
       printf("error: socket accept");
       return;
     }
-    printf("%d\n", cfd);
+    printf("%d\n", client_fd);
     char *buff = malloc(4096); 
     size_t len = 4096;
-    int bytes = recv(cfd, buff, len, 0);
+    int bytes = recv(client_fd, buff, len, 0);
     buff[bytes] = '\0';
 
     struct Request *req = malloc(sizeof(struct Request));
@@ -204,14 +324,21 @@ void serve() {
     if(bytes > 0) {
       printf("%s\n", buff);
     }
-    strcpy(buff, "HTTP/1.1 200 HUHU\n");
-    len = strlen(buff);
-    send(cfd, buff, len, 0);
-    close(cfd);
+
+		process_request(req);
+
+		close(client_fd);
   }
 }
 
+void signal_sigint(int s) {
+	printf("signal: %d\n", s);
+	close(fd);
+	exit(1);
+}
+
 int main() {
+	signal(SIGINT, signal_sigint);
   serve();
   return 0;
 }
