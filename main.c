@@ -11,6 +11,10 @@
 #include <string.h>
 #include <signal.h>
 
+#include "http.h"
+#include "request.h"
+#include "response.h"
+
 #define LISTEN_BACKLOG 50
 
 int proxy_fd, client_fd, server_fd;
@@ -36,146 +40,6 @@ char *get_time_str() {
   return buffer;
 }
 
-struct LinkedList {
-  void *data;
-  struct LinkedList *next;
-};
-
-void list_append(void *data, struct LinkedList *list) {
-  if(list == NULL) {
-    list = malloc(sizeof(struct LinkedList));
-    list->next = NULL;
-  }
-
-  while(list->next != NULL) {
-    list = list->next;
-  }
-  list->data = data;
-  list->next = malloc(sizeof(struct LinkedList));
-  list = list->next;
-  list->next = NULL;
-}
-
-struct Header {
-  char *key;
-  char *value;
-};
-
-struct Request {
-  char *method;
-  char *uri;
-  char *proto;
-  struct LinkedList *headers;
-  size_t headers_len;
-  char *body;
-};
-
-struct Response {
-  char *proto;
-  uint32_t status;
-  char *reason;
-  struct Header *headers;
-  size_t headers_len;
-  char *body;
-};
-
-void header_build(char *line, struct Header *header) {
-  size_t len = strlen(line);
-  char buff[4096];
-  size_t curr = 0;
-  for(size_t i = 0; i < len; ++i) {
-    if(line[i] == ':' && line[i+1] == ' ') {
-      buff[curr] = '\0';
-      header->key = malloc(strlen(buff) + 1);
-      strcpy(header->key, buff);
-
-      ++i;
-      curr = 0;
-
-      continue;
-    } 
-    buff[curr] = line[i];
-    curr += 1;
-  }
-
-  buff[curr] = '\0';
-  header->value = malloc(strlen(buff));
-  strcpy(header->value, buff);
-}
-
-size_t headers_build(char *buff, struct LinkedList *headers) {
-  int cnt = 0;
-  size_t len = 0;
-  size_t i = 0;
-
-  while(cnt == 0) {
-    if(buff[i] == 13 && buff[i+1] == 10) {
-      cnt++;
-      i += 2;
-      break;
-    }
-    ++i;
-  }
-
-  cnt = 0;
-  char line[4096];
-  int idx = 0;
-  size_t buff_len = strlen(buff);
-  while(cnt < 2 && i < buff_len) {
-    if(buff[i] == 13 && buff[i+1] == 10) {
-      cnt++;
-      i += 2;
-      if(cnt == 1) {
-        line[idx] = '\0';
-        idx = 0;
-        len++;
-
-        struct Header *header = malloc(sizeof(struct Header));
-        header_build(line, header);
-        list_append(header, headers);
-      }
-      continue;
-    }
-    if(cnt == 1) cnt = 0;
-    line[idx] = buff[i]; 
-    idx++;
-    i++;
-  }
-
-  return len;
-}
-
-void body_build(char *buff, char *body) {
-	size_t len = strlen(buff);
-	size_t i = 0;
-	int cnt = 0;
-	while(cnt < 2 && i < len) {
-		if(buff[i] == 13 && buff[i+1] == 10) {
-			cnt += 1;
-			i += 2;
-		} else {
-			cnt = 0;
-			++i;
-		}
-	}
-	if(body == NULL) {
-		body = malloc(len - i + 1);
-	}
-
-	strcpy(body, buff+i);
-}
-
-int headers_get_content_length(struct LinkedList *list) {
-	while(list != NULL && list->data != NULL) {
-		struct Header header = *(struct Header *) list->data;
-		if(strcasecmp(header.key, "content-length") == 0) {
-			return atoi(header.value);
-		}
-		list = list->next;
-	}
-	return -1;
-}
-
 char *headers_build_str(struct LinkedList *headers) {
 	char *buff = malloc(200);
   buff[0] = '\0';
@@ -197,100 +61,38 @@ char *headers_build_str(struct LinkedList *headers) {
 	return buff;
 }
 
-void request_build(char *buff, struct Request* req) {
-  size_t len = strlen(buff);
-  if(req == NULL) {
-    req = malloc(sizeof(struct Request));
-  }
-  req->method = malloc(15);
-  req->uri = malloc(4096);
-	req->proto = malloc(15);
-  int i = 0, idx = 0;
-  while(i < len) {
-    if(buff[i] == 13 && buff[i+1] == 10) {
-      req->method[idx] = '\0';
-      i += 2;
-      break;
-    }
-    if(buff[i] == ' ') break;
-    req->method[idx] = buff[i];
-    ++i;
-    ++idx;
-  }
-
-	i += 1;
-  idx = 0;
-  while(i < len) {
-    if(buff[i] == 13 && buff[i+1] == 10) {
-      req->uri[idx] = '\0';
-      i+=2;
-      break;
-    }
-    if(buff[i] == ' ') break;
-    req->uri[idx] = buff[i];
-    ++i;
-    ++idx;
-  }
-
-  idx = 0;
-	i+=1;
-  while(i < len) {
-    if(buff[i] == 13 && buff[i+1] == 10) {
-      req->proto[idx] = '\0';
-      break;
-    }
-    req->proto[idx] = buff[i];
-    ++i;
-    ++idx;
-  }
-
-	
-  req->headers = malloc(sizeof(struct Header));
-  req->headers->data = req->headers->next = NULL;
-  req->headers_len = headers_build(buff, req->headers);
-	int content_length = headers_get_content_length(req->headers);
-	if(content_length > 0) {
-		req->body = malloc(content_length);
-	} else {
-		req->body = NULL;
-	}
-
-	body_build(buff, req->body);
-}
-
-void disect_request_main(struct Request *request) {
-		printf("%s %s %s\n", request->method, request->uri, request->proto);
-}
-
-void disect_request_headers(struct Request *request) {
-	struct Header header;
-	struct LinkedList curr = *request->headers;
-	for(size_t i = 0; i < request->headers_len; i++) {
-		header = *(struct Header *) curr.data;
-		printf("%s: %s\n", header.key, header.value);
-		curr = *curr.next;
-	}
-}
-
-void disect_request_body(struct Request *request) {
-	printf("%s\n", request->body);
-}
-
-void disect_request(struct Request *request, int fl) {
-		disect_request_main(request);
-		disect_request_headers(request);
-		printf("\n");
-		disect_request_body(request);
-}
-
 void send_request(struct Request *request) {
-	char *buff = malloc(4096 * 2);
+  printf("connecting to server\n");
+	char *request_str = malloc(4096 * 2);
 	char *headers_str = headers_build_str(request->headers);
-	sprintf(buff, "%s %s %s\r\n", request->method, request->uri, request->proto);
-  strcat(buff, headers_str);
-  strcat(buff, request->body);
+	sprintf(request_str, "%s %s %s\r\n", request->method, request->uri, request->proto);
+  strcat(request_str, headers_str);
+  strcat(request_str, request->body);
 
   server_connect();
+  if(send(server_fd, request_str, strlen(request_str), 0) < 0) {
+    printf("server send error: %s\n", strerror(errno));
+  }
+
+  int len = 0;
+  char *server_response = NULL;
+  char *buff = malloc(4096);
+
+  ssize_t bytes;
+  while((bytes = recv(server_fd, buff, 4096, 0)) > 0) {
+    len += bytes;
+    printf("bytes: %ld\n", bytes);
+    server_response = realloc(server_response, len);
+    strcat(server_response, buff);
+  }
+
+  struct Response *res = malloc(sizeof(struct Response));
+
+  response_build(server_response, res);
+
+  response_disect(res);
+
+  close(server_fd);
 }
 
 void process_request(struct Request *request) {
