@@ -1,4 +1,5 @@
 #include <sys/socket.h>
+#include <time.h>
 #include <errno.h>
 #include <stdint.h>
 #include <errno.h>
@@ -12,7 +13,28 @@
 
 #define LISTEN_BACKLOG 50
 
-int fd, client_fd;
+int proxy_fd, client_fd, server_fd;
+char *server_ip, *server_port;
+struct sockaddr_in proxy_addr, client_addr, server_addr;
+
+void server_connect() {
+  server_fd = socket(AF_INET, SOCK_STREAM, 0); 
+  socklen_t len = sizeof(server_addr);
+  if(connect(server_fd, (struct sockaddr *)&server_addr, len) < 0) {
+    fprintf(stderr, "error: server connect: %s\n", strerror(errno));
+  }
+}
+
+char *get_time_str() {
+  time_t rawtime;
+  struct tm *timeinfo;
+  char *buffer = malloc(80);
+  time(&rawtime); 
+  timeinfo = localtime(&rawtime);
+  strftime(buffer, 80, "%T", timeinfo);
+
+  return buffer;
+}
 
 struct LinkedList {
   void *data;
@@ -77,7 +99,7 @@ void header_build(char *line, struct Header *header) {
   }
 
   buff[curr] = '\0';
-  header->value = malloc(strlen(buff) + 1);
+  header->value = malloc(strlen(buff));
   strcpy(header->value, buff);
 }
 
@@ -104,11 +126,10 @@ size_t headers_build(char *buff, struct LinkedList *headers) {
       cnt++;
       i += 2;
       if(cnt == 1) {
-        line[idx+1] = '\0';
+        line[idx] = '\0';
         idx = 0;
         len++;
 
-        printf("line: %s\n", line);
         struct Header *header = malloc(sizeof(struct Header));
         header_build(line, header);
         list_append(header, headers);
@@ -141,7 +162,6 @@ void body_build(char *buff, char *body) {
 		body = malloc(len - i + 1);
 	}
 
-	printf("body: %s\n", buff+i);
 	strcpy(body, buff+i);
 }
 
@@ -158,7 +178,7 @@ int headers_get_content_length(struct LinkedList *list) {
 
 char *headers_build_str(struct LinkedList *headers) {
 	char *buff = malloc(200);
-	sprintf(buff, "");
+  buff[0] = '\0';
 
 	struct Header header;
 	struct LinkedList curr = *headers;
@@ -167,12 +187,12 @@ char *headers_build_str(struct LinkedList *headers) {
 		char *header_str = malloc(strlen(header.key) + strlen(header.value) + 5);
 		sprintf(header_str, "%s: %s\r\n", header.key, header.value);
 		buff = realloc(buff, strlen(buff) + strlen(header_str));
-		sprintf(buff, "%s%s", buff, header_str);
+    strcat(buff, header_str);
 		curr = *curr.next;
 	}
 
 	buff = realloc(buff, strlen(buff) + 2);
-	sprintf(buff, "%s\r\n", buff);
+  strcat(buff, "\r\n");
 
 	return buff;
 }
@@ -226,6 +246,7 @@ void request_build(char *buff, struct Request* req) {
 
 	
   req->headers = malloc(sizeof(struct Header));
+  req->headers->data = req->headers->next = NULL;
   req->headers_len = headers_build(buff, req->headers);
 	int content_length = headers_get_content_length(req->headers);
 	if(content_length > 0) {
@@ -265,54 +286,53 @@ void disect_request(struct Request *request, int fl) {
 void send_request(struct Request *request) {
 	char *buff = malloc(4096 * 2);
 	char *headers_str = headers_build_str(request->headers);
-	printf("%s\n", headers_str);
 	sprintf(buff, "%s %s %s\r\n", request->method, request->uri, request->proto);
+  strcat(buff, headers_str);
+  strcat(buff, request->body);
+
+  server_connect();
 }
 
 void process_request(struct Request *request) {
 	char command[200];
-	printf("Process Request\nChoose:\n(1) -> Disect\n(2) -> Resend\n(3) -> Modify\n> ");
-	scanf("%s", &command);
-	char *token = strtok(command, " ");
-	if(strcmp(token, "disect") == 0) {
-		token = strtok(command, " ");
-		if(token == NULL) 
-			disect_request(request, 0);
-		if(strcmp(token, "main") == 0) 
-			disect_request_main(request);
-		if(strcmp(token, "headers") == 0)
-			disect_request_headers(request);
-		if(strcmp(token, "body") == 0)
-			disect_request_body(request);
+  char *time_str = get_time_str();
+	printf("> [%s] [%s] %s $ ", time_str, request->method, request->uri);
+  free(time_str);
+	scanf("%s", command);
+	if(strcmp(command, "disect") == 0) {
+		disect_request(request, 0);
+    process_request(request);
 	}
-	if(strcmp(token, "resend") == 0) {
+	if(strcmp(command, "resend") == 0) {
 		send_request(request);
 	}
 }
 
 void serve() {
-  fd = socket(AF_INET, SOCK_STREAM, 0);
-  struct sockaddr_in addr, caddr;
-  addr.sin_family = AF_INET;
-  addr.sin_port = htons(3000);
-  addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+  proxy_fd = socket(AF_INET, SOCK_STREAM, 0);
+  proxy_addr.sin_family = AF_INET;
+  proxy_addr.sin_port = htons(3000);
+  proxy_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
 
-  if(bind(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
+  int enable = 1;
+  setsockopt(proxy_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)); 
+  if(bind(proxy_fd, (struct sockaddr *)&proxy_addr, sizeof(proxy_addr)) < 0) {
     fprintf(stderr, "bind: error %s\n", strerror(errno));
     exit(1);
   }
 
 
-  listen(fd, LISTEN_BACKLOG);
+  listen(proxy_fd, LISTEN_BACKLOG);
+  printf("Server listening on PORT 3000\n");
 
-  socklen_t peer_addr_len = sizeof(caddr);
+  socklen_t peer_addr_len = sizeof(client_addr);
   while(1) {
-    client_fd  = accept(fd, (struct sockaddr *)&caddr, &peer_addr_len);
+    printf("Waiting for connections\n");
+    client_fd  = accept(proxy_fd, (struct sockaddr *)&client_addr, &peer_addr_len);
     if(client_fd == -1) {
       printf("error: socket accept");
       return;
     }
-    printf("%d\n", client_fd);
     char *buff = malloc(4096); 
     size_t len = 4096;
     int bytes = recv(client_fd, buff, len, 0);
@@ -321,23 +341,28 @@ void serve() {
     struct Request *req = malloc(sizeof(struct Request));
     request_build(buff, req);
 
-    if(bytes > 0) {
-      printf("%s\n", buff);
-    }
-
 		process_request(req);
 
 		close(client_fd);
+    free(req);
   }
 }
 
 void signal_sigint(int s) {
 	printf("signal: %d\n", s);
-	close(fd);
+	close(proxy_fd);
 	exit(1);
 }
 
-int main() {
+int main(int argc, char *argv[]) {
+  if(argc != 3) {
+    printf("Usage: %s ip port\n", argv[0]);
+    return 1;
+  }
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_port = htons(atoi(argv[2]));
+  server_addr.sin_addr.s_addr = inet_addr(argv[1]);
+
 	signal(SIGINT, signal_sigint);
   serve();
   return 0;
