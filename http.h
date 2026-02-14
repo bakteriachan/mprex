@@ -2,6 +2,8 @@
 #define HTTP_H_
 
 #include <stdint.h>
+#include <stdio.h>
+#include <time.h>
 #include <stdlib.h>
 #include <string.h>
 
@@ -14,7 +16,9 @@ void list_append(void *data, struct LinkedList *list) {
   if(list == NULL) {
     list = malloc(sizeof(struct LinkedList));
     list->next = NULL;
+    list->data = NULL;
   }
+  struct LinkedList *p = list;
 
   while(list->next != NULL) {
     list = list->next;
@@ -23,6 +27,9 @@ void list_append(void *data, struct LinkedList *list) {
   list->next = malloc(sizeof(struct LinkedList));
   list = list->next;
   list->next = NULL;
+  list->data = NULL;
+
+  list = p;
 }
 
 struct Header {
@@ -37,7 +44,7 @@ void header_build(char *line, struct Header *header) {
   for(size_t i = 0; i < len; ++i) {
     if(line[i] == ':' && line[i+1] == ' ') {
       buff[curr] = '\0';
-      header->key = malloc(strlen(buff));
+      header->key = malloc(strlen(buff) + 1);
       strcpy(header->key, buff);
 
       ++i;
@@ -50,7 +57,7 @@ void header_build(char *line, struct Header *header) {
   }
 
   buff[curr] = '\0';
-  header->value = malloc(strlen(buff));
+  header->value = malloc(strlen(buff) + 1);
   strcpy(header->value, buff);
 }
 
@@ -61,6 +68,7 @@ struct Request {
   struct LinkedList *headers;
   size_t headers_len;
   char *body;
+  time_t *ttime;
 };
 
 struct Response {
@@ -70,6 +78,7 @@ struct Response {
   struct LinkedList *headers;
   size_t headers_len;
   char *body;
+  time_t *ttime;
 };
 
 #endif // HTTP_H_

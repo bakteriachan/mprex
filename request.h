@@ -87,13 +87,14 @@ void request_build(char *buff, struct Request* req) {
   if(req == NULL) {
     req = malloc(sizeof(struct Request));
   }
+  req->ttime = malloc(sizeof(time_t));
+  time(req->ttime);
   req->method = malloc(15);
   req->uri = malloc(4096);
 	req->proto = malloc(15);
   int i = 0, idx = 0;
   while(i < len) {
     if(buff[i] == 13 && buff[i+1] == 10) {
-      req->method[idx] = '\0';
       i += 2;
       break;
     }
@@ -102,12 +103,12 @@ void request_build(char *buff, struct Request* req) {
     ++i;
     ++idx;
   }
+  req->method[idx] = '\0';
 
 	i += 1;
   idx = 0;
   while(i < len) {
     if(buff[i] == 13 && buff[i+1] == 10) {
-      req->uri[idx] = '\0';
       i+=2;
       break;
     }
@@ -116,18 +117,19 @@ void request_build(char *buff, struct Request* req) {
     ++i;
     ++idx;
   }
+  req->uri[idx] = '\0';
 
   idx = 0;
 	i+=1;
   while(i < len) {
     if(buff[i] == 13 && buff[i+1] == 10) {
-      req->proto[idx] = '\0';
       break;
     }
     req->proto[idx] = buff[i];
     ++i;
     ++idx;
   }
+  req->proto[idx] = '\0';
 
 	
   req->headers = malloc(sizeof(struct Header));
@@ -158,7 +160,8 @@ void disect_request_headers(struct Request *request) {
 }
 
 void disect_request_body(struct Request *request) {
-	printf("%s\n", request->body);
+  if(request->body != NULL)
+	  printf("%s\n", request->body);
 }
 
 void disect_request(struct Request *request, int fl) {

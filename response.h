@@ -2,12 +2,17 @@
 #define RESPONSE_H_
 
 #include <stdlib.h>
+#include <stdio.h>
 #include "http.h"
 
 void response_build(char *buff, struct Response *res) {
   if(res == NULL) {
     res = malloc(sizeof(struct Response));
   }
+
+  res->ttime = malloc(sizeof(time_t));
+  time(res->ttime);
+
   res->proto = malloc(16);
   int i = 0;
   for(;buff[i] != ' '; ++i) {
@@ -69,6 +74,7 @@ void response_disect(struct Response *res) {
   printf("%s %u %s\n", res->proto, res->status, res->reason);
   struct LinkedList *curr = res->headers;
   while(curr != NULL) {
+    if(curr->data == NULL) break;
     printf("%s: %s\n", ((struct Header *)curr->data)->key, ((struct Header *)curr->data)->value);
     curr = curr->next;
   }
