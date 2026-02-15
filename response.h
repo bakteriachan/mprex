@@ -35,36 +35,8 @@ void response_build(char *buff, struct Response *res) {
   }
   res->reason[idx] = '\0';
 
-  i += 2;
-  int cnt = 0;
-  idx = 0;
 
-  res->headers = malloc(sizeof(struct LinkedList));
-  res->headers->data = NULL;
-  res->headers->next = NULL;
-  res->headers_len = 0;
-
-  char *line = malloc(1<<8);
-  while(cnt < 2) {
-    if(buff[i] == '\r' && buff[i+1] == '\n') {
-      cnt++;
-      i += 2;
-      if(cnt == 1) {
-        line[idx] = '\0';
-        res->headers_len++;
-        struct Header *header = malloc(sizeof(struct Header));
-        header_build(line, header);
-        list_append(header, res->headers);
-
-        idx = 0;
-      }
-      continue;
-    }
-    line[idx] = buff[i];
-    idx++;
-    i++;
-    cnt = 0;
-  }
+  res->headers_len = http_build_headers(buff, res->headers);
 
   res->body = malloc(strlen(buff) - i + 1);
   strcpy(res->body, buff+i);

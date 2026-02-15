@@ -5,6 +5,8 @@
 #include <stdlib.h>
 #include <string.h>
 #include "http.h"
+#include "util.h"
+#include "header.h"
 
 void body_build(char *buff, char *body) {
 	size_t len = strlen(buff);
@@ -38,48 +40,6 @@ int headers_get_content_length(struct LinkedList *list) {
 	return -1;
 }
 
-
-size_t headers_build(char *buff, struct LinkedList *headers) {
-  int cnt = 0;
-  size_t len = 0;
-  size_t i = 0;
-
-  while(cnt == 0) {
-    if(buff[i] == 13 && buff[i+1] == 10) {
-      cnt++;
-      i += 2;
-      break;
-    }
-    ++i;
-  }
-
-  cnt = 0;
-  char line[4096];
-  int idx = 0;
-  size_t buff_len = strlen(buff);
-  while(cnt < 2 && i < buff_len) {
-    if(buff[i] == 13 && buff[i+1] == 10) {
-      cnt++;
-      i += 2;
-      if(cnt == 1) {
-        line[idx] = '\0';
-        idx = 0;
-        len++;
-
-        struct Header *header = malloc(sizeof(struct Header));
-        header_build(line, header);
-        list_append(header, headers);
-      }
-      continue;
-    }
-    if(cnt == 1) cnt = 0;
-    line[idx] = buff[i]; 
-    idx++;
-    i++;
-  }
-
-  return len;
-}
 
 
 void request_build(char *buff, struct Request* req) {
@@ -132,15 +92,20 @@ void request_build(char *buff, struct Request* req) {
   req->proto[idx] = '\0';
 
 	
-  req->headers = malloc(sizeof(struct Header));
-  req->headers->data = req->headers->next = NULL;
-  req->headers_len = headers_build(buff, req->headers);
-	int content_length = headers_get_content_length(req->headers);
-	if(content_length > 0) {
-		req->body = malloc(content_length);
-	} else {
-		req->body = NULL;
-	}
+  req->headers_len = http_build_headers(buff, req->headers);
+
+  struct Header *hcontent_length = http_header_get(req->headers, "content-length");
+  if(hcontent_length != NULL) {
+    int content_length = atoi(hcontent_length->value);
+
+    if(content_length > 0) {
+      req->body = malloc(content_length);
+    } else {
+      req->body = NULL;
+    }
+  } else {
+    req->body = NULL;
+  }
 
 	body_build(buff, req->body);
 }
