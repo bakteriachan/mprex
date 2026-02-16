@@ -9,35 +9,35 @@
 #include "header.h"
 
 void body_build(char *buff, char *body) {
-	size_t len = strlen(buff);
-	size_t i = 0;
-	int cnt = 0;
-	while(cnt < 2 && i < len) {
-		if(buff[i] == 13 && buff[i+1] == 10) {
-			cnt += 1;
-			i += 2;
-		} else {
-			cnt = 0;
-			++i;
-		}
-	}
-	if(body == NULL) {
-		body = malloc(len - i + 1);
-	}
+  size_t len = strlen(buff);
+  size_t i = 0;
+  int cnt = 0;
+  while(cnt < 2 && i < len) {
+    if(buff[i] == 13 && buff[i+1] == 10) {
+      cnt += 1;
+      i += 2;
+    } else {
+      cnt = 0;
+      ++i;
+    }
+  }
+  if(body == NULL) {
+    body = malloc(len - i + 1);
+  }
 
-	strcpy(body, buff+i);
+  strcpy(body, buff+i);
 }
 
 
 int headers_get_content_length(struct LinkedList *list) {
-	while(list != NULL && list->data != NULL) {
-		struct Header header = *(struct Header *) list->data;
-		if(strcasecmp(header.key, "content-length") == 0) {
-			return atoi(header.value);
-		}
-		list = list->next;
-	}
-	return -1;
+  while(list != NULL && list->data != NULL) {
+    struct Header header = *(struct Header *) list->data;
+    if(strcasecmp(header.key, "content-length") == 0) {
+      return atoi(header.value);
+    }
+    list = list->next;
+  }
+  return -1;
 }
 
 void request_build(char *buff, size_t content_len, struct Request* req) {
@@ -52,7 +52,7 @@ void request_build(char *buff, size_t content_len, struct Request* req) {
 
   req->method = malloc(15);
   req->uri = malloc(4096);
-	req->proto = malloc(15);
+  req->proto = malloc(15);
   int i = 0, idx = 0;
   while(i < len) {
     if(buff[i] == ' ') break;
@@ -62,7 +62,7 @@ void request_build(char *buff, size_t content_len, struct Request* req) {
   }
   req->method[idx] = '\0';
 
-	i += 1;
+  i += 1;
   idx = 0;
   while(i < len) {
     if(buff[i] == 13 && buff[i+1] == 10) {
@@ -77,7 +77,7 @@ void request_build(char *buff, size_t content_len, struct Request* req) {
   req->uri[idx] = '\0';
 
   idx = 0;
-	i+=1;
+  i+=1;
   while(i < len) {
     if(buff[i] == 13 && buff[i+1] == 10) {
       break;
@@ -96,7 +96,7 @@ void request_build(char *buff, size_t content_len, struct Request* req) {
 
     if(content_length > 0) {
       req->body = malloc(content_length);
-	    body_build(buff, req->body);
+      body_build(buff, req->body);
     } else {
       req->body = NULL;
     }
@@ -107,29 +107,29 @@ void request_build(char *buff, size_t content_len, struct Request* req) {
 }
 
 void disect_request_main(struct Request *request) {
-		printf("%s %s %s\n", request->method, request->uri, request->proto);
+  printf("%s %s %s\n", request->method, request->uri, request->proto);
 }
 
 void disect_request_headers(struct Request *request) {
-	struct Header header;
-	struct LinkedList curr = *request->headers;
-	for(size_t i = 0; i < request->headers_len; i++) {
-		header = *(struct Header *) curr.data;
-		printf("%s: %s\n", header.key, header.value);
-		curr = *curr.next;
-	}
+  struct Header header;
+  struct LinkedList curr = *request->headers;
+  for(size_t i = 0; i < request->headers_len; i++) {
+    header = *(struct Header *) curr.data;
+    printf("%s: %s\n", header.key, header.value);
+    curr = *curr.next;
+  }
 }
 
 void disect_request_body(struct Request *request) {
   if(request->body != NULL)
-	  printf("%s\n", request->body);
+    printf("%s\n", request->body);
 }
 
 void disect_request(struct Request *request, int fl) {
-		disect_request_main(request);
-		disect_request_headers(request);
-		printf("\n");
-		disect_request_body(request);
+  disect_request_main(request);
+  disect_request_headers(request);
+  printf("\n");
+  disect_request_body(request);
 }
 
 void request_free(struct Request *req) {

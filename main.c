@@ -48,26 +48,26 @@ char *get_time_str(time_t *ttime) {
 }
 
 char *headers_build_str(struct LinkedList *headers) {
-	char *buff = malloc(200);
+  char *buff = malloc(200);
   buff[0] = '\0';
 
-	struct Header header;
-	struct LinkedList curr = *headers;
-	while(curr.data != NULL && curr.next != NULL) {
-		header = *(struct Header *) curr.data;
-		char *header_str = malloc(strlen(header.key) + strlen(header.value) + 5);
-		sprintf(header_str, "%s: %s\r\n", header.key, header.value);
-		buff = realloc(buff, strlen(buff) + strlen(header_str) + 1);
+  struct Header header;
+  struct LinkedList curr = *headers;
+  while(curr.data != NULL && curr.next != NULL) {
+    header = *(struct Header *) curr.data;
+    char *header_str = malloc(strlen(header.key) + strlen(header.value) + 5);
+    sprintf(header_str, "%s: %s\r\n", header.key, header.value);
+    buff = realloc(buff, strlen(buff) + strlen(header_str) + 1);
     strcat(buff, header_str);
-		curr = *curr.next;
+    curr = *curr.next;
 
     free(header_str);
-	}
+  }
 
-	buff = realloc(buff, strlen(buff) + 5);
+  buff = realloc(buff, strlen(buff) + 5);
   strcat(buff, "\r\n");
 
-	return buff;
+  return buff;
 }
 
 void client_send_response(struct Response *res) {
@@ -112,9 +112,9 @@ void process_server_response(struct Response *res) {
 }
 
 void send_request(struct Request *request) {
-	char *request_str = malloc(4096 * 2);
-	char *headers_str = headers_build_str(request->headers);
-	sprintf(request_str, "%s %s %s\r\n", request->method, request->uri, request->proto);
+  char *request_str = malloc(4096 * 2);
+  char *headers_str = headers_build_str(request->headers);
+  sprintf(request_str, "%s %s %s\r\n", request->method, request->uri, request->proto);
   strcat(request_str, headers_str);
   free(headers_str);
   if(request->body != NULL)
@@ -159,9 +159,9 @@ void send_request(struct Request *request) {
 }
 
 void process_request(struct Request *request) {
-	char command[200];
+  char command[200];
   char *time_str = get_time_str(request->ttime);
-	printf("< [%s] [%s] %s", time_str, request->method, request->uri);
+  printf("< [%s] [%s] %s", time_str, request->method, request->uri);
   free(time_str);
   if(nostdin) {
     printf("\n");
@@ -169,15 +169,15 @@ void process_request(struct Request *request) {
     return;
   } else {
     printf(" $ ");
-	  scanf("%s", command);
+    scanf("%s", command);
   }
-	if(strcmp(command, "disect") == 0) {
-		disect_request(request, 0);
+  if(strcmp(command, "disect") == 0) {
+    disect_request(request, 0);
     process_request(request);
-	}
-	if(strcmp(command, "resend") == 0) {
-		send_request(request);
-	}
+  }
+  if(strcmp(command, "resend") == 0) {
+    send_request(request);
+  }
 }
 
 void serve() {
@@ -220,17 +220,17 @@ void serve() {
     struct Request *req = malloc(sizeof(struct Request));
     request_build(request_str, req_len, req);
 
-		process_request(req);
+    process_request(req);
 
-		close(client_fd);
+    close(client_fd);
     request_free(req);
   }
 }
 
 void signal_sigint(int s) {
-	printf("signal: %d\n", s);
-	close(proxy_fd);
-	exit(1);
+  printf("signal: %d\n", s);
+  close(proxy_fd);
+  exit(1);
 }
 
 int main(int argc, char *argv[]) {
@@ -251,7 +251,7 @@ int main(int argc, char *argv[]) {
     }
   }
 
-	signal(SIGINT, signal_sigint);
+  signal(SIGINT, signal_sigint);
   serve();
   return 0;
 }
