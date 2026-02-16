@@ -6,6 +6,7 @@
 #include <time.h>
 #include <stdlib.h>
 #include <string.h>
+#include <strings.h>
 
 #include "header.h"
 #include "util.h"
@@ -25,12 +26,13 @@ struct Response {
   uint32_t status;
   char *reason;
   struct LinkedList *headers;
+  size_t content_len;
   size_t headers_len;
   char *body;
   time_t *ttime;
 };
 
-size_t http_build_headers(char *buff, struct LinkedList *headers) {
+size_t http_build_headers(char *buff, struct LinkedList **headers) {
   size_t len = 0;
   char *line = strchr(buff, '\n') + 1;
   while(*line != '\r') {
@@ -39,10 +41,11 @@ size_t http_build_headers(char *buff, struct LinkedList *headers) {
     char *value = substring(line, '\r');
 
     struct Header *header = header_build(key, value);
-    ll_append(headers, header, sizeof(struct Header));
+    ll_append(headers, header, sizeof(struct Header), header_free);
 
     free(key);
     free(value);
+    free(header);
 
     len += 1;
     line = strchr(line, '\n') + 1;
@@ -57,9 +60,9 @@ struct Header *http_header_get(struct LinkedList *headers, const char *key) {
   struct LinkedList *p = headers;
 
   struct Header *curr;
-  while(p != NULL) {
+  while(p->data != NULL) {
     curr = (struct Header *) p->data;
-    if(strcmp(curr->key, key) == 0) {
+    if(strncasecmp(curr->key, key, strlen(key)) == 0) {
       header = header_build(curr->key, curr->value);
       break;
     }

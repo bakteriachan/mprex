@@ -16,4 +16,11 @@ struct Header* header_build(char *key, char *value) {
   return header;
 }
 
+void header_free(void *data) {
+  struct Header *h = (struct Header *) data;
+  free(h->key);
+  free(h->value);
+  free(h);
+}
+
 #endif // HEADER_H_

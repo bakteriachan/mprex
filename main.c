@@ -22,11 +22,12 @@ char *server_ip, *server_port;
 struct sockaddr_in proxy_addr, client_addr, server_addr;
 int nostdin = 0;
 
-void server_connect() {
+int server_connect() {
   server_fd = socket(AF_INET, SOCK_STREAM, 0); 
   socklen_t len = sizeof(server_addr);
   if(connect(server_fd, (struct sockaddr *)&server_addr, len) < 0) {
     fprintf(stderr, "error: server connect: %s\n", strerror(errno));
+    return -1;
   }
 }
 
@@ -59,6 +60,8 @@ char *headers_build_str(struct LinkedList *headers) {
 		buff = realloc(buff, strlen(buff) + strlen(header_str) + 1);
     strcat(buff, header_str);
 		curr = *curr.next;
+
+    free(header_str);
 	}
 
 	buff = realloc(buff, strlen(buff) + 5);
@@ -68,14 +71,18 @@ char *headers_build_str(struct LinkedList *headers) {
 }
 
 void client_send_response(struct Response *res) {
-    char *response_str = malloc(4096 * 2);
-    char *headers_str = headers_build_str(res->headers);
-    sprintf(response_str, "%s %u %s\n", res->proto, res->status, res->reason);
-    strcat(response_str, headers_str);
-    if(res->body != NULL)
-      strcat(response_str, res->body);
+  char *response_str = malloc(4096 * 2 + res->content_len);
+  char *headers_str = headers_build_str(res->headers);
+  sprintf(response_str, "%s %u %s\n", res->proto, res->status, res->reason);
+  strcat(response_str, headers_str);
+  size_t len = strlen(response_str) + res->content_len;
+  if(res->body != NULL)
+    memcpy(response_str + strlen(response_str), res->body, res->content_len);
 
-    send(client_fd, response_str, strlen(response_str), 0); 
+  send(client_fd, response_str, len, 0); 
+
+  free(headers_str);
+  free(response_str);
 }
 
 void process_server_response(struct Response *res) {
@@ -109,41 +116,53 @@ void send_request(struct Request *request) {
 	char *headers_str = headers_build_str(request->headers);
 	sprintf(request_str, "%s %s %s\r\n", request->method, request->uri, request->proto);
   strcat(request_str, headers_str);
+  free(headers_str);
   if(request->body != NULL)
     strcat(request_str, request->body);
 
-  server_connect();
+  if(server_connect() < 0)
+    return;
   if(send(server_fd, request_str, strlen(request_str), 0) < 0) {
     printf("server send error: %s\n", strerror(errno));
     return;
   }
 
-  ssize_t len = 1;
-  char *server_response = malloc(1);
-  *server_response = '\0';
+  ssize_t len = 0;
+  void *server_response = NULL;
 
-  char *buff = malloc(4096 * 2);
+  void *buff = malloc(4100);
 
   ssize_t bytes;
   while((bytes = recv(server_fd, buff, 4096, 0)) > 0) {
+    server_response = realloc(server_response, len + bytes);
+    memcpy(server_response+len, buff, bytes);
     len += bytes;
-    server_response = realloc(server_response, len);
-    strncat(server_response, buff, bytes);
   }
 
   struct Response *res = malloc(sizeof(struct Response));
+  res->headers = NULL;
 
   response_build(server_response, res);
+  if(res->status == 431) {
+    printf("%u\n", res->status);
+  }
+
 
   process_server_response(res);
 
+  response_free(res);
+
   close(server_fd);
+  free(request_str);
+  free(buff);
+  free(server_response);
 }
 
 void process_request(struct Request *request) {
 	char command[200];
   char *time_str = get_time_str(request->ttime);
 	printf("< [%s] [%s] %s", time_str, request->method, request->uri);
+  free(time_str);
   if(nostdin) {
     printf("\n");
     send_request(request);
@@ -152,7 +171,6 @@ void process_request(struct Request *request) {
     printf(" $ ");
 	  scanf("%s", command);
   }
-  free(time_str);
 	if(strcmp(command, "disect") == 0) {
 		disect_request(request, 0);
     process_request(request);
@@ -188,7 +206,7 @@ void serve() {
     }
     char *buff = malloc(4096); 
     size_t len = 4096;
-    ssize_t bytes, req_len = 1;
+    size_t bytes, req_len = 1;
     char *request_str = malloc(1);
     *request_str = '\0';
     do {
@@ -197,16 +215,15 @@ void serve() {
       req_len += bytes;
       request_str = realloc(request_str, req_len);
       strncat(request_str, buff, bytes);
-      printf("bytes: %ld\n", bytes);
     }while(bytes == len);
 
     struct Request *req = malloc(sizeof(struct Request));
-    request_build(request_str, req);
+    request_build(request_str, req_len, req);
 
 		process_request(req);
 
 		close(client_fd);
-    free(req);
+    request_free(req);
   }
 }
 

@@ -40,24 +40,21 @@ int headers_get_content_length(struct LinkedList *list) {
 	return -1;
 }
 
-
-
-void request_build(char *buff, struct Request* req) {
+void request_build(char *buff, size_t content_len, struct Request* req) {
   size_t len = strlen(buff);
   if(req == NULL) {
     req = malloc(sizeof(struct Request));
   }
+
+  memset(req, 0, sizeof(struct Request));
   req->ttime = malloc(sizeof(time_t));
   time(req->ttime);
+
   req->method = malloc(15);
   req->uri = malloc(4096);
 	req->proto = malloc(15);
   int i = 0, idx = 0;
   while(i < len) {
-    if(buff[i] == 13 && buff[i+1] == 10) {
-      i += 2;
-      break;
-    }
     if(buff[i] == ' ') break;
     req->method[idx] = buff[i];
     ++i;
@@ -91,8 +88,7 @@ void request_build(char *buff, struct Request* req) {
   }
   req->proto[idx] = '\0';
 
-	
-  req->headers_len = http_build_headers(buff, req->headers);
+  req->headers_len = http_build_headers(buff, &req->headers);
 
   struct Header *hcontent_length = http_header_get(req->headers, "content-length");
   if(hcontent_length != NULL) {
@@ -100,6 +96,7 @@ void request_build(char *buff, struct Request* req) {
 
     if(content_length > 0) {
       req->body = malloc(content_length);
+	    body_build(buff, req->body);
     } else {
       req->body = NULL;
     }
@@ -107,7 +104,6 @@ void request_build(char *buff, struct Request* req) {
     req->body = NULL;
   }
 
-	body_build(buff, req->body);
 }
 
 void disect_request_main(struct Request *request) {
@@ -136,6 +132,16 @@ void disect_request(struct Request *request, int fl) {
 		disect_request_body(request);
 }
 
+void request_free(struct Request *req) {
+  free(req->method);
+  free(req->uri);
+  free(req->proto);
+  ll_free(req->headers);
+  free(req->body);
+  free(req->ttime);
+
+  free(req);
+}
 
 #endif // REQUEST_H_
 

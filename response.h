@@ -2,12 +2,14 @@
 #define RESPONSE_H_
 
 #include <stdlib.h>
+#include <string.h>
 #include <stdio.h>
 #include "http.h"
 
 void response_build(char *buff, struct Response *res) {
   if(res == NULL) {
     res = malloc(sizeof(struct Response));
+    memset(res, 0, sizeof(res));
   }
 
   res->ttime = malloc(sizeof(time_t));
@@ -27,6 +29,7 @@ void response_build(char *buff, struct Response *res) {
   }
   status[idx] = '\0';
   res->status = atoi(status);
+  free(status);
 
   res->reason = malloc(32);
   idx = 0;
@@ -35,11 +38,23 @@ void response_build(char *buff, struct Response *res) {
   }
   res->reason[idx] = '\0';
 
+  res->headers_len = http_build_headers(buff, &res->headers);
 
-  res->headers_len = http_build_headers(buff, res->headers);
+  struct Header *hcontent = http_header_get(res->headers, "content-length");
+  if(hcontent != NULL) {
+    size_t content_len = atoi(hcontent->value);
+    void *body = malloc(content_len);
+    memcpy(body, strstr(buff, "\r\n\r\n") + 4, content_len);
+    res->content_len = content_len;
+    res->body = malloc(content_len);
+    memcpy(res->body, body, content_len);
+    free(body);
+  } else {
+    res->content_len = 0;
+    res->body = NULL;
+  }
 
-  res->body = malloc(strlen(buff) - i + 1);
-  strcpy(res->body, buff+i);
+  header_free(hcontent);
 }
 
 void response_disect(struct Response *res) {
@@ -54,6 +69,16 @@ void response_disect(struct Response *res) {
 
   if(res->body != NULL)
     printf("%s\n", res->body);
+}
+
+void response_free(struct Response *res) {
+  free(res->proto);
+  free(res->reason);
+  ll_free(res->headers);
+  free(res->body);
+  free(res->ttime);
+
+  free(res);
 }
 
 #endif // RESPONSE_H_
