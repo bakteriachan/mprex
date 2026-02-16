@@ -219,11 +219,13 @@ void serve() {
 
     struct Request *req = malloc(sizeof(struct Request));
     request_build(request_str, req_len, req);
+    free(request_str);
 
     process_request(req);
 
     close(client_fd);
     request_free(req);
+    free(buff);
   }
 }
 
