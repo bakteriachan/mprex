@@ -17,6 +17,7 @@ struct Header* header_build(char *key, char *value) {
 }
 
 void header_free(void *data) {
+	if(data == NULL) return;
   struct Header *h = (struct Header *) data;
   free(h->key);
   free(h->value);
