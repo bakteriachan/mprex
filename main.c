@@ -21,6 +21,8 @@ int proxy_fd, client_fd, server_fd;
 char *server_ip, *server_port;
 struct sockaddr_in proxy_addr, client_addr, server_addr;
 int nostdin = 0;
+int PORT = 3000;
+char host[16];
 
 int server_connect() {
   server_fd = socket(AF_INET, SOCK_STREAM, 0); 
@@ -102,6 +104,7 @@ void process_server_response(struct Response *res) {
   if(strcmp(command, "disect") == 0) {
     response_disect(res);
     process_server_response(res);
+		return;
   }
   if(strcmp(command, "continue") == 0 || strcmp(command, "c") == 0) {
     client_send_response(res);
@@ -113,7 +116,11 @@ void process_server_response(struct Response *res) {
 
 void send_request(struct Request *request) {
   char *request_str = malloc(4096 * 2);
+	struct Header *connect = header_build("Connection", "close");
+	ll_append(&request->headers, connect, sizeof(struct Header), header_free);
   char *headers_str = headers_build_str(request->headers);
+	free(connect);
+
   sprintf(request_str, "%s %s %s\r\n", request->method, request->uri, request->proto);
   strcat(request_str, headers_str);
   free(headers_str);
@@ -183,8 +190,8 @@ void process_request(struct Request *request) {
 void serve() {
   proxy_fd = socket(AF_INET, SOCK_STREAM, 0);
   proxy_addr.sin_family = AF_INET;
-  proxy_addr.sin_port = htons(3000);
-  proxy_addr.sin_addr.s_addr = inet_addr("127.0.0.1");
+  proxy_addr.sin_port = htons(PORT);
+  proxy_addr.sin_addr.s_addr = inet_addr(host);
 
   int enable = 1;
   setsockopt(proxy_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)); 
@@ -195,7 +202,7 @@ void serve() {
 
 
   listen(proxy_fd, LISTEN_BACKLOG);
-  printf("Server listening on PORT 3000\n");
+  printf("Server listening on PORT %d\n", PORT);
 
   socklen_t peer_addr_len = sizeof(client_addr);
   while(1) {
@@ -235,23 +242,34 @@ void signal_sigint(int s) {
   exit(1);
 }
 
+void usage(char *name) {
+	printf("Usage: %s ip port [-h <host>] [-p <port>] [-no-stdin]\n	-p <port>\n		port where the proxy will be listening\n	-h <host>\n		host where the proxy will be listening\nExample: %s 8.8.8.8 80  -h 0.0.0.0 -p 3000\n", name, name);
+}
+
 int main(int argc, char *argv[]) {
-  if(argc < 3 || argc > 4) {
-    printf("Usage: %s ip port [-no-stdin]\n", argv[0]);
+  if(argc < 3) {
+		usage(argv[0]);
     return 1;
   }
+	strcpy(host, "0.0.0.0");
+	for(int i = 3; i < argc; i++) {
+		if(strcmp(argv[i], "-h") == 0) {
+			strcpy(host, argv[i+1]);
+			++i;
+		} else if(strcmp(argv[i], "-p") == 0) {
+			PORT = atoi(argv[i+1]);
+			++i;
+		} else if(strcmp(argv[i], "-no-stdin") == 0) {
+			nostdin = 1;
+		} else {
+			usage(argv[0]);
+			return 1;
+		}
+	}
   server_addr.sin_family = AF_INET;
   server_addr.sin_port = htons(atoi(argv[2]));
   server_addr.sin_addr.s_addr = inet_addr(argv[1]);
 
-  if(argc == 4) {
-    if(strcmp(argv[3], "-no-stdin") == 0) {
-      nostdin = 1;
-    } else {
-      printf("Usage: %s ip port [-no-stdin]\n", argv[0]);
-      return 1;
-    }
-  }
 
   signal(SIGINT, signal_sigint);
   serve();
