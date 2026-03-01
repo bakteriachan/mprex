@@ -14,6 +14,7 @@
 #include "http.h"
 #include "request.h"
 #include "response.h"
+#include "proxy.h"
 
 #define LISTEN_BACKLOG 50
 
@@ -204,36 +205,6 @@ void serve() {
   listen(proxy_fd, LISTEN_BACKLOG);
   printf("Server listening on PORT %d\n", PORT);
 
-  socklen_t peer_addr_len = sizeof(client_addr);
-  while(1) {
-    client_fd  = accept(proxy_fd, (struct sockaddr *)&client_addr, &peer_addr_len);
-    if(client_fd == -1) {
-      printf("error: socket accept");
-      return;
-    }
-    char *buff = malloc(4096); 
-    size_t len = 4096;
-    size_t bytes, req_len = 1;
-    char *request_str = malloc(1);
-    *request_str = '\0';
-    do {
-      bytes = recv(client_fd, buff, len, 0);
-      if(bytes <= 0) break;
-      req_len += bytes;
-      request_str = realloc(request_str, req_len);
-      strncat(request_str, buff, bytes);
-    }while(bytes == len);
-
-    struct Request *req = malloc(sizeof(struct Request));
-    request_build(request_str, req_len, req);
-    free(request_str);
-
-    process_request(req);
-
-    close(client_fd);
-    request_free(req);
-    free(buff);
-  }
 }
 
 void signal_sigint(int s) {
@@ -266,12 +237,9 @@ int main(int argc, char *argv[]) {
 			return 1;
 		}
 	}
-  server_addr.sin_family = AF_INET;
-  server_addr.sin_port = htons(atoi(argv[2]));
-  server_addr.sin_addr.s_addr = inet_addr(argv[1]);
 
 
   signal(SIGINT, signal_sigint);
-  serve();
+  mprex_listen(PORT, host);
   return 0;
 }
