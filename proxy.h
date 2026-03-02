@@ -116,8 +116,11 @@ static void *mprex_client_connected(void *data) {
 
 
   close(*client->fd);
+  close(server_fd);
+
   // TODO: log request and response
 
+  pthread_exit(NULL);
   return 0;
 }
 
@@ -154,6 +157,7 @@ void mprex_listen(mprex_proxy *proxy) {
 
     pthread_t thid;
     pthread_create(&thid, &attr, &mprex_client_connected, (void *)client);
+    pthread_detach(thid);
   }
   pthread_attr_destroy(&attr);
 }
