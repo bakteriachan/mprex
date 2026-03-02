@@ -1,5 +1,9 @@
-mprex: main.c http.h request.h response.h
-	cc main.c http.h request.h -o mprex
+HEADERS=proxy.h
+SRC=main.c
+CC=cc
 
-debug: main.c http.h request.h response.h util.h header.h
-	cc -g main.c -o debug
+mprex: $(SRC) $(OBJS) 
+	$(CC) $(SRC) -pthread -o mprex
+
+debug: $(SRC) $(OBJS) 
+	$(CC) -g -pthread $(SRC) -o debug

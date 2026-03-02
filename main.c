@@ -1,220 +1,22 @@
-#include <sys/socket.h>
-#include <time.h>
-#include <errno.h>
-#include <stdint.h>
-#include <errno.h>
-#include <unistd.h>
-#include <stdio.h>
-#include <stdlib.h>
-#include <netinet/in.h>
-#include <arpa/inet.h>
-#include <string.h>
+#define _GNU_SOURCE
+
 #include <signal.h>
 
-#include "http.h"
-#include "request.h"
-#include "response.h"
 #include "proxy.h"
 
 #define LISTEN_BACKLOG 50
 
-int proxy_fd, client_fd, server_fd;
-char *server_ip, *server_port;
-struct sockaddr_in proxy_addr, client_addr, server_addr;
-int nostdin = 0;
+struct sockaddr_in proxy_addr, server_addr;
 int PORT = 3000;
 char host[16];
 
-int server_connect() {
-  server_fd = socket(AF_INET, SOCK_STREAM, 0); 
-  socklen_t len = sizeof(server_addr);
-  if(connect(server_fd, (struct sockaddr *)&server_addr, len) < 0) {
-    fprintf(stderr, "error: server connect: %s\n", strerror(errno));
-    return -1;
-  }
-}
-
-char *get_time_str(time_t *ttime) {
-  time_t rawtime;
-  if(ttime != NULL) {
-    rawtime = *ttime;
-  } else {
-    time(&rawtime); 
-  }
-
-  struct tm *timeinfo;
-  char *buffer = malloc(80);
-  timeinfo = localtime(&rawtime);
-  strftime(buffer, 80, "%T", timeinfo);
-
-  return buffer;
-}
-
-char *headers_build_str(struct LinkedList *headers) {
-  char *buff = malloc(200);
-  buff[0] = '\0';
-
-  struct Header header;
-  struct LinkedList curr = *headers;
-  while(curr.data != NULL && curr.next != NULL) {
-    header = *(struct Header *) curr.data;
-    char *header_str = malloc(strlen(header.key) + strlen(header.value) + 5);
-    sprintf(header_str, "%s: %s\r\n", header.key, header.value);
-    buff = realloc(buff, strlen(buff) + strlen(header_str) + 1);
-    strcat(buff, header_str);
-    curr = *curr.next;
-
-    free(header_str);
-  }
-
-  buff = realloc(buff, strlen(buff) + 5);
-  strcat(buff, "\r\n");
-
-  return buff;
-}
-
-void client_send_response(struct Response *res) {
-  char *response_str = malloc(4096 * 2 + res->content_len);
-  char *headers_str = headers_build_str(res->headers);
-  sprintf(response_str, "%s %u %s\n", res->proto, res->status, res->reason);
-  strcat(response_str, headers_str);
-  size_t len = strlen(response_str) + res->content_len;
-  if(res->body != NULL)
-    memcpy(response_str + strlen(response_str), res->body, res->content_len);
-
-  send(client_fd, response_str, len, 0); 
-
-  free(headers_str);
-  free(response_str);
-}
-
-void process_server_response(struct Response *res) {
-  char *time_str = get_time_str(res->ttime);
-  char command[200];
-  printf("> [%s] [%u]", time_str, res->status);
-  free(time_str);
-  if(nostdin) {
-    printf("\n");
-    client_send_response(res);
-    return;
-  } else {
-    printf(" $ ");
-    scanf("%s", command);
-  }
-
-  if(strcmp(command, "disect") == 0) {
-    response_disect(res);
-    process_server_response(res);
-		return;
-  }
-  if(strcmp(command, "continue") == 0 || strcmp(command, "c") == 0) {
-    client_send_response(res);
-    return;
-  }
-
-  process_server_response(res);
-}
-
-void send_request(struct Request *request) {
-  char *request_str = malloc(4096 * 2);
-	struct Header *connect = header_build("Connection", "close");
-	ll_append(&request->headers, connect, sizeof(struct Header), header_free);
-  char *headers_str = headers_build_str(request->headers);
-	free(connect);
-
-  sprintf(request_str, "%s %s %s\r\n", request->method, request->uri, request->proto);
-  strcat(request_str, headers_str);
-  free(headers_str);
-  if(request->body != NULL)
-    strcat(request_str, request->body);
-
-  if(server_connect() < 0)
-    return;
-  if(send(server_fd, request_str, strlen(request_str), 0) < 0) {
-    printf("server send error: %s\n", strerror(errno));
-    return;
-  }
-
-  ssize_t len = 0;
-  void *server_response = NULL;
-
-  void *buff = malloc(4100);
-
-  ssize_t bytes;
-  while((bytes = recv(server_fd, buff, 4096, 0)) > 0) {
-    server_response = realloc(server_response, len + bytes);
-    memcpy(server_response+len, buff, bytes);
-    len += bytes;
-  }
-
-  struct Response *res = malloc(sizeof(struct Response));
-  res->headers = NULL;
-
-  response_build(server_response, res);
-  if(res->status == 431) {
-    printf("%u\n", res->status);
-  }
-
-
-  process_server_response(res);
-
-  response_free(res);
-
-  close(server_fd);
-  free(request_str);
-  free(buff);
-  free(server_response);
-}
-
-void process_request(struct Request *request) {
-  char command[200];
-  char *time_str = get_time_str(request->ttime);
-  printf("< [%s] [%s] %s", time_str, request->method, request->uri);
-  free(time_str);
-  if(nostdin) {
-    printf("\n");
-    send_request(request);
-    return;
-  } else {
-    printf(" $ ");
-    scanf("%s", command);
-  }
-  if(strcmp(command, "disect") == 0) {
-    disect_request(request, 0);
-    process_request(request);
-  }
-  if(strcmp(command, "resend") == 0) {
-    send_request(request);
-  }
-}
-
-void serve() {
-  proxy_fd = socket(AF_INET, SOCK_STREAM, 0);
-  proxy_addr.sin_family = AF_INET;
-  proxy_addr.sin_port = htons(PORT);
-  proxy_addr.sin_addr.s_addr = inet_addr(host);
-
-  int enable = 1;
-  setsockopt(proxy_fd, SOL_SOCKET, SO_REUSEADDR, &enable, sizeof(int)); 
-  if(bind(proxy_fd, (struct sockaddr *)&proxy_addr, sizeof(proxy_addr)) < 0) {
-    fprintf(stderr, "bind: error %s\n", strerror(errno));
-    exit(1);
-  }
-
-
-  listen(proxy_fd, LISTEN_BACKLOG);
-  printf("Server listening on PORT %d\n", PORT);
-
-}
-
 void signal_sigint(int s) {
   printf("signal: %d\n", s);
-  close(proxy_fd);
   exit(1);
 }
 
 void usage(char *name) {
-	printf("Usage: %s ip port [-h <host>] [-p <port>] [-no-stdin]\n	-p <port>\n		port where the proxy will be listening\n	-h <host>\n		host where the proxy will be listening\nExample: %s 8.8.8.8 80  -h 0.0.0.0 -p 3000\n", name, name);
+	printf("Usage: %s ip port [-h <host>] [-p <port>]\n	-p <port>\n		port where the proxy will be listening\n	-h <host>\n		host where the proxy will be listening\nExample: %s 8.8.8.8 80  -h 0.0.0.0 -p 3000\n", name, name);
 }
 
 int main(int argc, char *argv[]) {
@@ -230,8 +32,6 @@ int main(int argc, char *argv[]) {
 		} else if(strcmp(argv[i], "-p") == 0) {
 			PORT = atoi(argv[i+1]);
 			++i;
-		} else if(strcmp(argv[i], "-no-stdin") == 0) {
-			nostdin = 1;
 		} else {
 			usage(argv[0]);
 			return 1;
@@ -240,6 +40,22 @@ int main(int argc, char *argv[]) {
 
 
   signal(SIGINT, signal_sigint);
-  mprex_listen(PORT, host);
+
+  proxy_addr.sin_family = AF_INET;
+  proxy_addr.sin_port = htons(PORT);
+  proxy_addr.sin_addr.s_addr = inet_addr(host);
+
+  server_addr.sin_family = AF_INET;
+  server_addr.sin_port = htons(atoi(argv[2]));
+  server_addr.sin_addr.s_addr = inet_addr(argv[1]);
+
+
+  mprex_proxy *proxy = malloc(sizeof(mprex_proxy));
+  proxy->mprex_addr = malloc(sizeof(struct sockaddr_in));
+  proxy->server_addr = malloc(sizeof(struct sockaddr_in));
+  memcpy(proxy->mprex_addr, &proxy_addr, sizeof(struct sockaddr_in));
+  memcpy(proxy->server_addr, &server_addr, sizeof(struct sockaddr_in));
+
+  mprex_listen(proxy);
   return 0;
 }
