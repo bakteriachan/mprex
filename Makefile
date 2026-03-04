@@ -1,4 +1,4 @@
-HEADERS=proxy.h
+OBJS=proxy.h logger.h
 SRC=main.c
 CC=cc
 

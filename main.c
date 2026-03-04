@@ -3,6 +3,7 @@
 #include <signal.h>
 
 #include "proxy.h"
+#include "logger.h"
 
 #define LISTEN_BACKLOG 50
 
@@ -56,6 +57,9 @@ int main(int argc, char *argv[]) {
   memcpy(proxy->mprex_addr, &proxy_addr, sizeof(struct sockaddr_in));
   memcpy(proxy->server_addr, &server_addr, sizeof(struct sockaddr_in));
 
+
+	mprex_logger_start();
   mprex_listen(proxy);
+
   return 0;
 }
