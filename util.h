@@ -3,6 +3,7 @@
 
 #include <stdlib.h>
 #include <string.h>
+#include <stdint.h>
 
 typedef void (*DataFreeFunc)(void *);
 
@@ -78,5 +79,33 @@ char *substring(char *str, int delimiter) {
 
   return substr;
 }
+
+typedef struct {
+  uint32_t count;
+  uint32_t capacity;
+} ArrayHeader;
+
+#define ARRAY_INIT(array) { \
+  uint32_t capacity = 32; \
+  ArrayHeader *header = malloc(sizeof(ArrayHeader) + sizeof(*array) * capacity); \
+  header->count = 0; \
+  header->capacity = capacity; \
+  array = (void *) header + 1; \
+} 
+
+#define ARRAY_ADD(array, element) { \
+  ArrayHeader *header = ((ArrayHeader *)array) - 1; \
+  if(header->count >= array->capacity) {\
+    header->capacity *= 2; \
+    header = realloc(header, sizeof(ArrayHeader) + sizeof(*array) * header->capacity); \
+    array = (void *)header + 1; \
+  } \
+  array[header->count] = element; \
+  header->count++; \
+} 
+
+#define ARRAY_COUNT(array) ((ArrayHeader*)(array) - 1)->count
+
+#define ARRAY_FREE(array) free((ArrayHeader *)array - 1)
 
 #endif // UTIL_H_
