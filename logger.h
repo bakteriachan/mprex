@@ -7,8 +7,12 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <stdint.h>
+#include <inttypes.h>
 
 #include "util.h"
+
+#define CTXT_FLAG_REQUEST   1
+#define CTXT_FLAG_RESPONSE  2
 
 typedef struct {
   int pipe_fd;
@@ -31,6 +35,11 @@ typedef struct {
   mprex_log_data *response;
 } mprex_ctxt;
 
+void mprex_ctxt_add_to_request(mprex_log_data *log_data, void *request, ssize_t len) {
+  log_data->data = realloc(log_data->data, len + log_data->len);
+  log_data->len += len;
+  memcpy(log_data->data + log_data->len, request, len);
+}
 pthread_mutex_t logger_mtx;
 unsigned long curr_ctxt = 1;
 
@@ -50,8 +59,8 @@ mprex_ctxt *mprex_ctxt_init() {
 mprex_ctxt *mprex_ctxt_search(mprex_ctxt *arr, unsigned long ctxt_id) {
   uint32_t count = ARRAY_COUNT(arr);
   for(int i = 0; i < count; i++) {
-    if(array[i]->ctxt_id == ctxt_id) {
-      return (void *)array[i];
+    if(*arr[i].ctxt_id == ctxt_id) {
+      return (void *)arr+i;
     }
   }
 
@@ -74,10 +83,11 @@ static void *mprex_logger_routine(void *data) {
     .revents = 0,
   };
   int pvalue;
-	ssize_t len = 0;
+	ssize_t len = 0, curr_len = 0;
   unsigned long ctxt = 0;
   uint8_t flag = 255;
   void *mem;
+
   while((pvalue = poll(&pfd, 1, -1)) >= 0) {
     if(pvalue == 0) continue;
     if(pfd.revents & POLLIN) {
@@ -88,16 +98,37 @@ static void *mprex_logger_routine(void *data) {
         memcpy(&len, buff, sizeof(len));
         mem = malloc(len);
         offset += sizeof(len);
+        printf("len: %ld\n", len);
       } 
       if(ctxt == 0 && bytes - offset >= sizeof(ctxt)) {
         memcpy(&ctxt, buff+offset, sizeof(ctxt)); 
         offset += sizeof(ctxt);
+        printf("ctxt: %ld\n", ctxt);
       } 
       if(flag == 255 && bytes - offset >= sizeof(flag)) {
         memcpy(&flag, buff+offset, sizeof(flag));
         offset += sizeof(flag);
+        printf("flag: %" PRIu8 "\n", flag);
       }
-      memcpy(mem, buff+offset, bytes-offset);
+      memcpy(mem+curr_len, buff+offset, min(len, bytes-offset));
+      curr_len += bytes-offset;
+      printf("mem: %s\n", (char *) mem);
+      printf("curr_len: %ld\n", curr_len);
+      if(curr_len >= len) {
+        len = 0;
+        ctxt = 0;
+        flag = 255;
+        curr_len = 0;
+        mprex_ctxt *context = mprex_ctxt_search(contexts, ctxt);
+        if(context == NULL) {
+          context = mprex_ctxt_init();
+        }
+        if(flag == CTXT_FLAG_REQUEST) {
+          //mprex_ctxt_add_to_request(context->request, mem, len);
+        } else if(flag == CTXT_FLAG_RESPONSE) {
+
+        }
+      }
     }
   }
 
@@ -120,16 +151,38 @@ int mprex_logger_start() {
 
 	pthread_attr_destroy(&attr);
 
-	ssize_t len = 56;
-	write(pipefd[1], &len, sizeof(ssize_t));
-	void *value = malloc(2049);
+	//ssize_t len = 56;
+	//write(pipefd[1], &len, sizeof(ssize_t));
+	//void *value = malloc(2049);
+
+  return pipefd[1]; 
 }
 
 unsigned long mprex_logger_create_ctxtid() {
   return curr_ctxt++;
 }
 
-int mprex_log_request(void *req) {}
+int mprex_log_request(void *req, ssize_t len, int pipefd) {
+  mprex_logger_get_mutex();
+
+  void *data = malloc(sizeof(ssize_t) + sizeof(uint64_t) + sizeof(uint8_t));
+  ssize_t offset = 0;
+  memcpy(data + offset, &len, sizeof(ssize_t));
+  offset += sizeof(ssize_t);
+  uint64_t ctxt = mprex_logger_create_ctxtid();
+  memcpy(data + offset, &ctxt, sizeof(uint64_t));
+  offset += sizeof(uint64_t);
+  uint8_t flag = CTXT_FLAG_REQUEST;
+  memcpy(data + offset, &flag, sizeof(uint8_t));
+  offset += sizeof(uint8_t);
+
+  data = realloc(data, offset + len);
+  memcpy(data + offset, req, len);
+
+  write(pipefd, data, offset + len);
+
+  mprex_logger_release_mutex();
+}
 int mprex_log_response(void *res) {}
 
 #endif // LOGGER_H_

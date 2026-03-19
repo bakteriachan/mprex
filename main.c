@@ -58,7 +58,9 @@ int main(int argc, char *argv[]) {
   memcpy(proxy->server_addr, &server_addr, sizeof(struct sockaddr_in));
 
 
-	mprex_logger_start();
+	int loggerfd = mprex_logger_start();
+  proxy->loggerfd = loggerfd;
+
   mprex_listen(proxy);
 
   return 0;

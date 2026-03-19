@@ -16,6 +16,8 @@
 #include <pthread.h>
 #include <poll.h>
 
+#include "logger.h"
+
 #ifndef LISTEN_BACKLOG
 #define LISTEN_BACKLOG 50
 #endif
@@ -29,10 +31,12 @@
 typedef struct {
   struct sockaddr_in *mprex_addr;
   struct sockaddr_in *server_addr;
+  int loggerfd;
 } mprex_proxy;
 
 typedef struct {
   int *fd;
+  int loggerfd;
   struct sockaddr_in *server_addr;
 } mprex_client;
 
@@ -119,6 +123,7 @@ static void *mprex_client_connected(void *data) {
   close(server_fd);
 
   // TODO: log request and response
+  mprex_log_request(client_request, request_len, client->loggerfd);
 
   pthread_exit(NULL);
   return 0;
@@ -154,6 +159,7 @@ void mprex_listen(mprex_proxy *proxy) {
     }
 
     mprex_client *client = mprex_client_build(client_fd, proxy->server_addr); 
+    client->loggerfd = proxy->loggerfd;
 
     pthread_t thid;
     pthread_create(&thid, &attr, &mprex_client_connected, (void *)client);
